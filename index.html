@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Racing Rush — Simple HTML5 Car Game</title>
+  <style>
+    :root { --bg:#111; --road:#2b2b2b; --hud:#1f6feb; --text:#eee; }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+    #gameWrap{display:flex;flex-direction:column;align-items:center;padding:16px}
+    canvas{background:linear-gradient(#6b6b6b,#444);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.6);display:block}
+    .hud{width:520px;display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px}
+    .btn{background:var(--hud);border:none;color:white;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:600}
+    .small{font-size:13px;color:#cfcfcf}
+    @media (max-width:560px){canvas{width:320px;height:480px} .hud{width:320px}}
+    .meta {font-size:12px;color:#bbb;margin-top:6px}
+  </style>
+</head>
+<body>
+  <div id="gameWrap">
+    <h2>Racing Rush — Play in your browser</h2>
+    <canvas id="c" width="480" height="640" aria-label="Racing Rush game canvas"></canvas>
+
+    <div class="hud">
+      <div>
+        <div>Score: <span id="score">0</span> &nbsp; | &nbsp; High: <span id="high">0</span></div>
+        <div class="small">Use ← → or A / D to move. Hold Space to boost.</div>
+      </div>
+      <div>
+        <button id="startBtn" class="btn">Start</button>
+        <button id="resetHigh" class="btn" style="background:#555;margin-left:8px">Reset High</button>
+      </div>
+    </div>
+    <div class="meta">Tip: Press Enter or Space to start. Works on desktop & mobile (tap Start).</div>
+  </div>
+
+  <script>
+  /* Racing Rush — single-file game */
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W = canvas.width, H = canvas.height;
+
+  let running=false, score=0, speed=3, frame=0;
+  const keys = {};
+  const storageKey = 'racing-rush-highscore';
+
+  const player = {w:40,h:60,x:W/2-20,y:H-100, vx:0};
+  const cars = [];
+
+  function drawRoundedRect(x,y,w,h,r,fill){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    if(fill) ctx.fill(); else ctx.stroke();
+  }
+
+  function reset(){
+    running=false; score=0; speed=3; frame=0; cars.length=0;
+    player.x = W/2 - player.w/2;
+    document.getElementById('score').textContent = 0;
+  }
+
+  function spawnCar(){
+    const laneW = (W-80)/3;
+    const lane = Math.floor(Math.random()*3);
+    const cw = 40 + Math.random()*30;
+    const offsetX = 40;
+    cars.push({
+      x: offsetX + lane*laneW + (laneW-cw)/2,
+      y:-80,
+      w:cw,
+      h:60,
+      speed: speed + Math.random()*2
+    });
+  }
+
+  function update(){
+    frame++;
+    if(!running) return;
+
+    const maxV = 6;
+    if(keys['ArrowLeft']||keys['a']) player.vx = -maxV;
+    else if(keys['ArrowRight']||keys['d']) player.vx = maxV;
+    else player.vx = 0;
+
+    if(keys[' ']) { player.x += player.vx*1.6; score += 0.05; }
+    else player.x += player.vx;
+
+    // clamp
+    if(player.x < 8) player.x = 8;
+    if(player.x + player.w > W-8) player.x = W-player.w-8;
+
+    // spawn logic (faster spawn as score increases)
+    if(frame % Math.max(30, 60 - Math.floor(score/10)) === 0) spawnCar();
+
+    // move and remove
+    for(let i=cars.length-1;i>=0;i--){
+      cars[i].y += cars[i].speed + speed*0.05;
+      if(cars[i].y > H+100) {
+        cars.splice(i,1);
+        score += 1;
+        document.getElementById('score').textContent = Math.floor(score);
+      }
+    }
+
+    // collision
+    for(const c of cars){
+      if(rectIntersect(player.x, player.y, player.w, player.h, c.x, c.y, c.w, c.h)){
+        gameOver();
+      }
+    }
+
+    // difficulty ramp
+    if(frame % 300 === 0) speed += 0.6;
+  }
+
+  function rectIntersect(x1,y1,w1,h1,x2,y2,w2,h2){
+    return !(x2 > x1+w1 || x2+w2 < x1 || y2 > y1+h1 || y2+h2 < y1);
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // road background
+    ctx.fillStyle = '#2b2b2b';
+    drawRoundedRect(40,0,W-80,H,0,true);
+
+    // lane markings
+    ctx.strokeStyle='rgba(255,255,255,0.35)';
+    ctx.lineWidth=4;
+    ctx.setLineDash([20,18]);
+    for(let i=1;i<3;i++){
+      const x = 40 + i*(W-80)/3;
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // player
+    ctx.fillStyle='#ff3b3b';
+    drawRoundedRect(player.x, player.y, player.w, player.h, 8, true);
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.fillRect(player.x+8, player.y+10, player.w-16, 18);
+
+    // enemy cars
+    for(const c of cars){
+      ctx.fillStyle='#1a73e8';
+      drawRoundedRect(c.x, c.y, c.w, c.h, 6, true);
+      ctx.fillStyle='#000';
+      ctx.fillRect(c.x+6, c.y+8, c.w-12, 12);
+    }
+
+    // overlay when not running
+    if(!running){
+      ctx.fillStyle='rgba(0,0,0,0.5)';
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#fff'; ctx.font='22px sans-serif'; ctx.textAlign='center';
+      ctx.fillText('Press Start to play', W/2, H/2 - 10);
+      ctx.font='14px sans-serif';
+      ctx.fillText('Avoid cars. Score increases as you pass.', W/2, H/2 + 18);
+    }
+  }
+
+  function loop(){ update(); draw(); requestAnimationFrame(loop); }
+
+  function startGame(){ reset(); running=true; frame=0; score=0; document.getElementById('score').textContent=0; }
+
+  function gameOver(){
+    running = false;
+    // update high score
+    const high = Number(localStorage.getItem(storageKey) || 0);
+    if(Math.floor(score) > high){
+      localStorage.setItem(storageKey, Math.floor(score));
+      document.getElementById('high').textContent = Math.floor(score);
+    }
+  }
+
+  // events
+  window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if(!running && (e.key === 'Enter' || e.key === ' ')) startGame();
+  });
+  window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    if(!running) startGame();
+    else reset();
+  });
+
+  document.getElementById('resetHigh').addEventListener('click', () => {
+    localStorage.removeItem(storageKey);
+    document.getElementById('high').textContent = 0;
+  });
+
+  // set high score on load
+  document.getElementById('high').textContent = localStorage.getItem(storageKey) || 0;
+
+  // run loop
+  loop();
+
+  // resize handling for responsive canvas (optional)
+  function resizeCanvas(){
+    // keep internal logical size same (480x640) but CSS scale on small screens
+    if(window.innerWidth < 520){
+      canvas.style.width = '320px';
+      canvas.style.height = '426px';
+    } else {
+      canvas.style.width = '480px';
+      canvas.style.height = '640px';
+    }
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  </script>
+</body>
+</html>
